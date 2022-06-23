@@ -1,0 +1,217 @@
+<script setup>
+import { ref, watch } from 'vue';
+import usePokedexWithSpecies from '../composables/usePokedexWithSpecies'
+import useSize from '../composables/useSize'
+import { forceSimulation as d3_forceSimulation } from 'd3-force'
+import {
+  // forceManyBody as d3_forceManyBody,
+  // forceCollide as d3_forceCollide,
+  // forceLink as d3_forceLink,
+  // forceCenter as d3_forceCenter,
+  // forceRadial as d3_forceRadial,
+  forceX as d3_forceX,
+  forceY as d3_forceY,
+} from 'd3-force'
+import { group as d3_group } from 'd3-array'
+import { extent as d3_extent } from 'd3-array'
+import { forceCollideOptional, forceCluster, distance } from '../utils/simulationUtils'
+import { schemeCategory10 as d3_schemeCategory10 } from 'd3-scale-chromatic'
+// eslint-disable-next-line
+import { computed } from '@vue/reactivity';
+
+const COLORS = d3_schemeCategory10
+
+const canvasRef = ref(null)
+const imagesRef = ref(null)
+const root = ref(null)
+const size = useSize(root)
+
+const typeColors = {
+  normal: 'A8A77A',
+  fire: 'EE8130',
+  water: '6390F0',
+  electric: 'F7D02C',
+  grass: '7AC74C',
+  ice: '96D9D6',
+  fighting: 'C22E28',
+  poison: 'A33EA1',
+  ground: 'E2BF65',
+  flying: 'A98FF3',
+  psychic: 'F95587',
+  bug: 'A6B91A',
+  rock: 'B6A136',
+  ghost: '735797',
+  dragon: '6F35FC',
+  dark: '705746',
+  steel: 'B7B7CE',
+  fairy: 'D685AD'
+}
+
+const { species, loading } = usePokedexWithSpecies(2)
+
+const clusters = computed(() => {
+  let clusters = []
+  d3_group(species.value, d => d.color.name).forEach((value, key) => {
+    value.sort((a, b) => b.weight - a.weight)
+    clusters.push({
+      id: key,
+      color: value[0].color.name,
+      pokemons: value,
+    })
+  })
+
+  let total = species.value.length
+
+  clusters.forEach((g, i) => {
+    g.arcSize = (Math.PI * 2 * g.pokemons.length) / total
+    g.startAngle = clusters[i - 1] ? clusters[i - 1].endAngle : Math.PI
+    g.endAngle = g.startAngle + g.arcSize
+    g.midAngle = g.startAngle + g.arcSize / 2
+  })
+  return clusters
+})
+
+const pokemons = computed(() => {
+  if (!species.value) return []
+  let extent = d3_extent(species.value, d => d.defaultVariety.weight)
+  return (species.value || []).sort((a, b) => a.id - b.id).map(d => {
+    const unitWeight = d.defaultVariety.weight / extent[1]
+    let r = 15 + 45 * unitWeight
+    let cluster = clusters.value.find(c => c.color === d.color.name)
+    return {
+      data: d,
+
+      clusterId: cluster.id,
+      color: cluster.color,
+      // x: Math.sin(cluster.midAngle) * (50 + (1 - unitWeight) * 200) + size.value.width / 2,
+      // y: Math.cos(cluster.midAngle) * (50 + (1 - unitWeight) * 200) + size.value.height / 2,
+      r: r,
+      unitWeight,
+      id: d.id,
+    }
+  })
+})
+
+function draw() {
+  const canvas = canvasRef.value
+  if (!canvas) return
+  const context = canvas.getContext('2d')
+  const simulation =
+    canvas.simulation ||
+    d3_forceSimulation()
+      .velocityDecay(0.5)
+      .alphaDecay(0.005)
+  canvas.simulation = simulation
+  pokemons.value.forEach(d => {
+    d.forcedX = null
+    d.forcedY = null
+    if (!d.x || !d.y) {
+      let g = clusters.value.find(c => c.id === d.clusterId)
+      let midAngle = g.startAngle + g.arcSize / 2
+      d.x = Math.sin(midAngle) * (50 + (1 - d.unitWeight) * 200) + size.value.width / 2
+      d.y = Math.cos(midAngle) * (50 + (1 - d.unitWeight) * 200) + size.value.height / 2
+    }
+  })
+  simulation.nodes(pokemons.value)
+  simulation
+    .force(
+      'collide',
+      forceCollideOptional()
+        .radius(d => {
+          return d.r + 10
+        })
+        .strength(() => {
+          return 0.8
+        })
+    )
+    .force(
+      'forceX',
+      d3_forceX()
+        .x(d => d.forcedX || size.value.width / 2)
+        .strength(d => (d.forcedX !== null ? 0.7 : 0))
+    )
+    .force(
+      'forceY',
+      d3_forceY()
+        .y(d => d.forcedY || size.value.height / 2)
+        .strength(d => (d.forcedY !== null ? 0.7 : 0))
+    )
+    .force(
+      'cluster',
+      forceCluster()
+        .centers(function(d) {
+          let g = clusters.value.find(c => c.id === d.clusterId)
+          return {
+            x:
+              Math.sin(g.midAngle) * (50 + (1 - d.unitWeight) * size.value.width * 0.2) +
+              size.value.width / 2,
+            y:
+              Math.cos(g.midAngle) * (50 + (1 - d.unitWeight) * size.value.height * 0.2) +
+              size.value.height / 2,
+          }
+        })
+        .strength(d => (d.forcedX !== null ? 0 : 2))
+        .centerInertia(1)
+    )
+    let renderPokemons = () => {
+      simulation.nodes().forEach(node => {
+        context.globalAlpha = 1
+        let paddedR = node.r
+        context.beginPath()
+        context.moveTo(node.x + paddedR, node.y)
+        context.arc(node.x, node.y, paddedR, 0, 2 * Math.PI)
+        context.strokeStyle = node.color
+        context.lineWidth = 1
+        context.stroke()
+        paddedR = node.r - 5
+        let image = imagesRef.value.find(el => +el.id === +node.id)
+        if (image) {
+          context.save()
+          context.beginPath()
+          context.moveTo(node.x + paddedR, node.y)
+          context.arc(node.x, node.y, paddedR, 0, 2 * Math.PI)
+          context.clip()
+          context.drawImage(image, node.x - paddedR, node.y - paddedR, paddedR * 2, paddedR * 2)
+          context.restore()
+        }
+      })
+    }
+    let render = function() {
+      context.clearRect(0, 0, context.canvas.width, context.canvas.height)
+      renderPokemons()
+    }
+    console.log(simulation.nodes())
+    simulation.on('tick', render)
+    simulation.alpha(0.2).restart()
+  }
+
+  watch(pokemons, () => !loading.value && draw())
+  watch(size, () => !loading.value && draw())
+  watch(loading, () => !loading.value && draw())
+
+</script>
+
+<template>
+  <div class="root" ref="root">
+    <canvas ref="canvasRef" :width="size.width" :height="size.height" />
+    <div v-if="!loading" class="images" style="display: none">
+      <img
+        v-for="i in species"
+        :id="i.id"
+        ref="imagesRef"
+        :key="i.id"
+        :src="i.defaultVariety.sprites.front_default"
+      >
+    </div>
+  </div>
+</template>
+
+<style scoped>
+.root {
+  background-color: lightblue;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-wrap: wrap;
+}
+</style>
