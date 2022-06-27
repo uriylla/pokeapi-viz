@@ -15,6 +15,8 @@ import {
 import { select as d3_select } from 'd3-selection'
 import { zoom as d3_zoom, zoomIdentity as d3_zoomIdentity } from 'd3-zoom'
 import { group as d3_group } from 'd3-array'
+import { pointer as d3_pointer } from 'd3-selection'
+import { quadtree as d3_quadtree } from 'd3-quadtree'
 import { extent as d3_extent } from 'd3-array'
 import { forceCollideOptional, forceCluster, distance } from '../utils/simulationUtils'
 import { schemeCategory10 as d3_schemeCategory10 } from 'd3-scale-chromatic'
@@ -28,6 +30,7 @@ const imagesRef = ref(null)
 const root = ref(null)
 const zoomTransform = ref(d3_zoomIdentity)
 const size = useSize(root)
+const selectedPokemon = ref(null)
 
 const typeColors = {
   normal: 'A8A77A',
@@ -90,8 +93,6 @@ const pokemons = computed(() => {
 
       clusterId: cluster.id,
       types: cluster.types,
-      // x: Math.sin(cluster.midAngle) * (50 + (1 - unitWeight) * 200) + size.value.width / 2,
-      // y: Math.cos(cluster.midAngle) * (50 + (1 - unitWeight) * 200) + size.value.height / 2,
       r: r,
       unitWeight,
       id: d.id,
@@ -175,7 +176,7 @@ function draw() {
         context.lineWidth = 5
         context.stroke()
       })
-      context.fillStyle = "#ffffff";
+      context.fillStyle = (selectedPokemon.value && selectedPokemon.value.id === node.id) ? "lightblue" : "#ffffff";
       context.beginPath();
       context.arc(node.x, node.y, paddedR, 0, 2 * Math.PI);
       context.fill();
@@ -211,6 +212,28 @@ function draw() {
   }
   simulation.on('tick', render)
   simulation.alpha(0.2).restart()
+
+
+  let qt = d3_quadtree()
+    .extent([
+      [0, 0],
+      [size.value.width, size.value.height],
+    ])
+    .x(d => d.x)
+    .y(d => d.y)
+
+  canvasRef.value.onclick = (e) => {
+    qt.addAll(pokemons.value)
+    let coords = d3_pointer(e)
+    const invertedCoords = zoomTransform.value.invert(coords)
+    let node = qt.find(invertedCoords[0], invertedCoords[1])
+    if (node && distance(node, { x: invertedCoords[0], y: invertedCoords[1] }) > node.r) node = null
+    if (node && node !== selectedPokemon.value) {
+      selectedPokemon.value = node
+    } else {
+      selectedPokemon.value = null
+    }
+  }
 }
 
 watch(pokemons, () => !loading.value && draw())
