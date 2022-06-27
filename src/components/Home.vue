@@ -58,7 +58,7 @@ const { species, loading } = usePokedexWithSpecies(2)
 
 const clusters = computed(() => {
   let clusters = []
-  d3_group(species.value, d => d.defaultVariety.types).forEach((value, key) => {
+  d3_group(species.value, d => typesToString(d.defaultVariety.types)).forEach((value, key) => {
     value.sort((a, b) => b.weight - a.weight)
     clusters.push({
       id: key,
