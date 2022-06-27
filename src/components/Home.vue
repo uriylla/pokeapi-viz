@@ -50,15 +50,19 @@ const typeColors = {
   fairy: 'D685AD'
 }
 
-const { species, loading } = usePokedexWithSpecies(3)
+const typesToString = (types) => {
+  return types.map(type => type.type.name).join('-')
+}
+
+const { species, loading } = usePokedexWithSpecies(2)
 
 const clusters = computed(() => {
   let clusters = []
-  d3_group(species.value, d => d.color.name).forEach((value, key) => {
+  d3_group(species.value, d => d.defaultVariety.types).forEach((value, key) => {
     value.sort((a, b) => b.weight - a.weight)
     clusters.push({
       id: key,
-      color: value[0].color.name,
+      types: typesToString(value[0].defaultVariety.types),
       pokemons: value,
     })
   })
@@ -80,12 +84,12 @@ const pokemons = computed(() => {
   return (species.value || []).sort((a, b) => a.id - b.id).map(d => {
     const unitWeight = d.defaultVariety.weight / extent[1]
     let r = 15 + 45 * unitWeight
-    let cluster = clusters.value.find(c => c.color === d.color.name)
+    let cluster = clusters.value.find(c => c.types === typesToString(d.defaultVariety.types))
     return {
       data: d,
 
       clusterId: cluster.id,
-      color: cluster.color,
+      types: cluster.types,
       // x: Math.sin(cluster.midAngle) * (50 + (1 - unitWeight) * 200) + size.value.width / 2,
       // y: Math.cos(cluster.midAngle) * (50 + (1 - unitWeight) * 200) + size.value.height / 2,
       r: r,
@@ -161,12 +165,20 @@ function draw() {
     simulation.nodes().forEach(node => {
       context.globalAlpha = 1
       let paddedR = node.r
-      context.beginPath()
-      context.moveTo(node.x + paddedR, node.y)
-      context.arc(node.x, node.y, paddedR, 0, 2 * Math.PI)
-      context.strokeStyle = node.color
-      context.lineWidth = 1
-      context.stroke()
+      const types = node.types.split('-')
+      types.forEach((type, i) => {
+        const archSize = (2 * Math.PI)/types.length
+        context.beginPath()
+        context.moveTo(node.x + paddedR, node.y)
+        context.arc(node.x, node.y, paddedR, i*archSize, (i+1)*archSize )
+        context.strokeStyle = `#${typeColors[type]}`
+        context.lineWidth = 5
+        context.stroke()
+      })
+      context.fillStyle = "#ffffff";
+      context.beginPath();
+      context.arc(node.x, node.y, paddedR, 0, 2 * Math.PI);
+      context.fill();
       paddedR = node.r - 5
       let image = imagesRef && imagesRef.value.find(el => +el.id === +node.id)
       if (image) {
@@ -224,7 +236,6 @@ watch(loading, () => !loading.value && draw())
 
 <style scoped>
 .root {
-  background-color: lightblue;
   width: 100%;
   height: 100%;
   display: flex;
