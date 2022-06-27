@@ -12,6 +12,8 @@ import {
   forceX as d3_forceX,
   forceY as d3_forceY,
 } from 'd3-force'
+import { select as d3_select } from 'd3-selection'
+import { zoom as d3_zoom, zoomIdentity as d3_zoomIdentity } from 'd3-zoom'
 import { group as d3_group } from 'd3-array'
 import { extent as d3_extent } from 'd3-array'
 import { forceCollideOptional, forceCluster, distance } from '../utils/simulationUtils'
@@ -24,6 +26,7 @@ const COLORS = d3_schemeCategory10
 const canvasRef = ref(null)
 const imagesRef = ref(null)
 const root = ref(null)
+const zoomTransform = ref(d3_zoomIdentity)
 const size = useSize(root)
 
 const typeColors = {
@@ -47,7 +50,7 @@ const typeColors = {
   fairy: 'D685AD'
 }
 
-const { species, loading } = usePokedexWithSpecies(2)
+const { species, loading } = usePokedexWithSpecies(3)
 
 const clusters = computed(() => {
   let clusters = []
@@ -96,6 +99,7 @@ function draw() {
   const canvas = canvasRef.value
   if (!canvas) return
   const context = canvas.getContext('2d')
+
   const simulation =
     canvas.simulation ||
     d3_forceSimulation()
@@ -153,41 +157,53 @@ function draw() {
         .strength(d => (d.forcedX !== null ? 0 : 2))
         .centerInertia(1)
     )
-    let renderPokemons = () => {
-      simulation.nodes().forEach(node => {
-        context.globalAlpha = 1
-        let paddedR = node.r
+  let renderPokemons = () => {
+    simulation.nodes().forEach(node => {
+      context.globalAlpha = 1
+      let paddedR = node.r
+      context.beginPath()
+      context.moveTo(node.x + paddedR, node.y)
+      context.arc(node.x, node.y, paddedR, 0, 2 * Math.PI)
+      context.strokeStyle = node.color
+      context.lineWidth = 1
+      context.stroke()
+      paddedR = node.r - 5
+      let image = imagesRef && imagesRef.value.find(el => +el.id === +node.id)
+      if (image) {
+        context.save()
         context.beginPath()
         context.moveTo(node.x + paddedR, node.y)
         context.arc(node.x, node.y, paddedR, 0, 2 * Math.PI)
-        context.strokeStyle = node.color
-        context.lineWidth = 1
-        context.stroke()
-        paddedR = node.r - 5
-        let image = imagesRef.value.find(el => +el.id === +node.id)
-        if (image) {
-          context.save()
-          context.beginPath()
-          context.moveTo(node.x + paddedR, node.y)
-          context.arc(node.x, node.y, paddedR, 0, 2 * Math.PI)
-          context.clip()
-          context.drawImage(image, node.x - paddedR, node.y - paddedR, paddedR * 2, paddedR * 2)
-          context.restore()
-        }
-      })
-    }
-    let render = function() {
-      context.clearRect(0, 0, context.canvas.width, context.canvas.height)
-      renderPokemons()
-    }
-    console.log(simulation.nodes())
-    simulation.on('tick', render)
-    simulation.alpha(0.2).restart()
+        context.clip()
+        context.drawImage(image, node.x - paddedR, node.y - paddedR, paddedR * 2, paddedR * 2)
+        context.restore()
+      }
+    })
+  }
+  let render = function() {
+    context.save()
+    context.clearRect(0, 0, context.canvas.width, context.canvas.height)
+    context.translate(zoomTransform.value.x, zoomTransform.value.y)
+    context.scale(zoomTransform.value.k, zoomTransform.value.k)
+    renderPokemons()
+    context.restore()
   }
 
-  watch(pokemons, () => !loading.value && draw())
-  watch(size, () => !loading.value && draw())
-  watch(loading, () => !loading.value && draw())
+  d3_select(context.canvas).call(d3_zoom()
+    .scaleExtent([1 / 2, 8])
+    .on("zoom", ({transform}) => zoomed(transform)));
+
+  const zoomed = (transform) => {
+    zoomTransform.value = transform
+    render()
+  }
+  simulation.on('tick', render)
+  simulation.alpha(0.2).restart()
+}
+
+watch(pokemons, () => !loading.value && draw())
+watch(size, () => !loading.value && draw())
+watch(loading, () => !loading.value && draw())
 
 </script>
 
